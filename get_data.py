@@ -2,11 +2,12 @@ import requests
 import json
 import pandas as pd
 from sqlalchemy import create_engine
+from sqlalchemy_utils import database_exists, create_database
 
 ######### change these to env vars or whatever is best practice
 postgres_user='postgres'
 postgres_password='postgres'
-table='finance'
+database='finance'
 
 headers = {
     'authority': 'query1.finance.yahoo.com',
@@ -51,7 +52,10 @@ def get_data(tickers):
 
 # Load data to postgres  
 def load_to_db(df):
-    eng = create_engine(f"postgresql://{postgres_user}:{postgres_password}@localhost/{table}")
+    eng = create_engine(f"postgresql://{postgres_user}:{postgres_password}@localhost/{database}")
+    if not database_exists(eng.url):
+        create_database(eng.url)
+
     df.to_sql(name="dashboard", con=eng, if_exists='append', index=False)
 
     remove_dupes_query="""
@@ -59,7 +63,7 @@ def load_to_db(df):
     USING dashboard distinct_rows 
     WHERE dupes.id < distinct_rows.id AND dupes.key = distinct_rows.key
     """
-    eng.execute(remove_dupes_query)
+    #eng.execute(remove_dupes_query)
     print('finished loading data into postgres')
 
 if __name__=='__main__':

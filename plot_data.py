@@ -5,10 +5,10 @@ import plotly.express as px
 from dash import Dash, html, dcc
 import plotly.graph_objects as go
 
-from get_data import postgres_user, postgres_password, table
+from get_data import postgres_user, postgres_password, database
 
 
-eng=create_engine(f"postgresql://{postgres_user}:{postgres_password}@localhost/{table}")
+eng=create_engine(f"postgresql://{postgres_user}:{postgres_password}@localhost/{database}")
 pg_data=pd.read_sql("select * from dashboard", con=eng)
 
 ticker_names=pd.DataFrame.from_dict({'ticker':['xlb','xle','xlf','xli','xlk','xlp','xlu','xlv','xly'],\
