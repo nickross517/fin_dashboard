@@ -6,15 +6,20 @@ from sqlalchemy import create_engine
 # for plots
 import dateutil.relativedelta as rdelta
 import plotly.express as px
-from dash import Dash, html, dcc
+import dash
 import plotly.graph_objects as go
+import dash_bootstrap_components as dbc
+from dash_bootstrap_templates import load_figure_template
 
-######### change these to env vars or whatever is best practice
+load_figure_template('SUPERHERO')
+
+
+######### change these to env vars 
 postgres_user='root'
 postgres_password='root'
 database='database'
 port='5432'
-# host is the name of your postgres container
+# host is the name of your postgres container 
 host='postgres_db'
 
 params = {
@@ -65,22 +70,29 @@ delete from dashboard where id in
     order by ticker, date desc) as t
      where seqnum>1);
 """
-#eng.execute(remove_dupes_query)
+eng.execute(remove_dupes_query)
 print('finished loading data into postgres')
 
 ### Reformatting data and plotting
 eng=create_engine(f"postgresql://{postgres_user}:{postgres_password}@{host}:{port}/{database}")
 pg_data=pd.read_sql("select * from dashboard", con=eng)
 
+#### local only -
+dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.css"
+
+pg_data=pd.read_csv('/Users/nick/fin_dashboard/test_data.csv')
+pg_data['date'] = pd.to_datetime(pg_data['date'])
+
+
 # TODO: - put these into a csv/load into postgres as dim table - "preferred names"
 ticker_names=pd.DataFrame.from_dict({'ticker':['xlb','xle','xlf','xli','xlk','xlp','xlu','xlv','xly'],\
  'full_names':['Materials (XLB)','Energy (XLE)','Financials (XLF)','Industrials (XLI)','Technology (XLK)',\
     'Consumer Staples (XLP)','Utilities (XLU)','Health Care (XLV)','Consumer Discretionary (XLY)']})
-
+pg_data=pd.merge(pg_data, ticker_names, on='ticker', how='left')
 
 def weekly_returns(df):
     df=df.set_index('date')
-    weekly_gb=df.groupby([df.index.month, df.index.isocalendar().week,'ticker'])['close'].agg(['first','last'])
+    weekly_gb=df.groupby([df.index.month, df.index.isocalendar().week,'full_names'])['close'].agg(['first','last'])
     weekly_gb=weekly_gb.reset_index(0).rename(columns={'date':'month'}).reset_index(0).rename(columns={'date':'week'}).reset_index()
     weekly_gb=weekly_gb.sort_values(by=['month','week'], ascending=False)
     weekly_gb['returns'] = (weekly_gb['last'] / weekly_gb['first']) -1
@@ -93,23 +105,22 @@ def weekly_returns(df):
         last_friday=(pd.to_datetime('today') + rdelta.relativedelta(days=-1, weekday=rdelta.FR(-1))).strftime('%m/%d')
         daily_var=f'Returns from {last_monday}-{last_friday} (Current weeks returns will update with 2 days of data)'
     else:
-        weekly_gb=weekly_gb.drop_duplicates(subset=['ticker','month'])
+        weekly_gb=weekly_gb.drop_duplicates(subset=['full_names','month'])
         daily_var='Current weeks returns'
     return weekly_gb,daily_var
 
 def monthly_returns(df):
     df=df.set_index('date')
-    monthly=df.groupby([df.index.year,df.index.month,'ticker'])['close'].agg(['first','last'])
+    monthly=df.groupby([df.index.year,df.index.month,'full_names'])['close'].agg(['first','last'])
     monthly=monthly.reset_index(0).rename(columns={'date':'date_year'}).reset_index(0).rename(columns={'date':'date_month'}).reset_index(0)
     monthly['monthly_return']=(monthly['last']/monthly['first'])-1
     monthly['date'] = pd.to_datetime(monthly['date_year'].astype(str)+monthly['date_month'].astype(str),format='%Y%m')
     return monthly
 
 def ytd_returns(df):
-    df=df.groupby([df['date'].dt.year,'ticker'])['close'].agg(['first','last']).reset_index()
+    df=df.groupby([df['date'].dt.year,'full_names'])['close'].agg(['first','last']).reset_index()
     df['ytd_returns']=(df['last'] / df['first']) -1 
     df['color'] = ['Red' if i<0 else 'Green' for i in df['ytd_returns']]
-    df=pd.merge(df, ticker_names, on='ticker',how='left')
     return df
 
 
@@ -123,50 +134,58 @@ ytd_fig=px.bar(yearly, x='full_names', y='ytd_returns', title='Year to Date Retu
 ytd_fig.update_traces(marker_color=yearly['color'])
 ytd_fig.layout.yaxis.tickformat = ',.0%'
 
-monthly_fig = go.Figure(data=[go.Table(
-    header=dict(values=['Ticker','Month','Returns'],
-                fill_color='darkslateblue',
-                align='left',
-                font_color='white'),
-    cells=dict(values=[monthly.ticker, monthly.date.dt.strftime('%b-%y'), (monthly['monthly_return']*100).round(2).astype(str)+'%'],
-               align='left'))
-])
-monthly_fig.update_layout(title_text='Monthly Returns')
 
-weekly_fig=go.Figure(data=[go.Table(
-    header=dict(values=['Ticker','Weekly Return'],
-    fill_color='darkslateblue',
-    font_color='white'),
-    cells=dict(values=[weekly['ticker'], (weekly['returns']*100).round(2).astype(str)+'%'])
+def make_returns_table(headers,data, col_width):
+    table=go.Figure(data=[go.Table(
+        columnwidth=col_width,
+        header=dict(values=headers),
+        cells=dict(values=data)
 )])
-weekly_fig.update_layout(title_text=f'Weekly Returns <br><sup>{daily_var}<sup>')
+    return table
+
+ytd_table=make_returns_table(headers=['full_names','YTD Return'], data=[yearly['full_names'], yearly['ytd_returns'].map(lambda x: "{0:.2f}%".format(x*100))], col_width=[10,5])
+ytd_table.update_layout(title_text='Year to date Returns')
+mtd_table=make_returns_table(headers=['full_names','Month-Year','Monthly Returns'], data=[monthly['full_names'], monthly['date'].dt.strftime('%b-%y'),\
+     monthly['monthly_return'].map(lambda x: "{0:.2f}%".format(x*100))], col_width=[10,5,5])
+mtd_table.update_layout(title_text='Monthly Returns')
+wtd_table=make_returns_table(headers=['full_names','Week Return'], data=[weekly['full_names'], weekly['returns'].map(lambda x: "{0:.2f}%".format(x*100))], col_width=[10,5])
+wtd_table.update_layout(title_text=f'Weekly Returns <br><sup>{daily_var}<sup>')
 
 
-app = Dash(__name__)
+app = dash.Dash(external_stylesheets=[dbc.themes.SUPERHERO,dbc_css])
 
-app.layout = html.Div(children=[
-    html.H1(children='Financial DASHboard'),
+table_width=33.33
 
-    html.Div(children='''
+
+
+app.layout = dash.html.Div(children=[
+    dash.html.H1(children='Financial DASHboard'),
+
+    dash.html.Div(children='''
         Financial data for sector ETFs via Yahoo finance API, postgres, plotly, and dash    
-    '''),
+'''),
 
-    dcc.Graph(
+    dash.dcc.Graph(
         id='ytd_graph',
-        figure=ytd_fig
+        figure=ytd_fig,
+        style={'width':'100%'}
     ),
-
-    dcc.Graph(
-        id='mtd_graph',
-        figure=monthly_fig
-    ),
-
-    dcc.Graph(
-        id='wtd_graph',
-        figure=weekly_fig
-    )
-
+    dash.html.Div(children=[
+        dash.dcc.Graph(
+            id='ytd_table',
+            figure=ytd_table,
+            style={'display':'inline-block','width':f'{table_width}%'}),
+        dash.dcc.Graph(
+            id='mtd_table',
+            figure=mtd_table,
+            style={'display':'inline-block','width':f'{table_width}%'}),
+        dash.dcc.Graph( 
+            id='wtd_table',
+            figure=wtd_table,
+            style={'display':'inline-block','width':f'{table_width}%'})
+    ])
 ])
+
 
 if __name__ == '__main__':
     app.run_server(debug=True, host='0.0.0.0')
