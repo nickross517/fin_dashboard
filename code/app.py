@@ -12,7 +12,7 @@ import dash_bootstrap_components as dbc
 from dash_bootstrap_templates import load_figure_template
 
 load_figure_template('SUPERHERO')
-
+dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.css"
 
 ######### change these to env vars 
 postgres_user='root'
@@ -77,11 +77,6 @@ print('finished loading data into postgres')
 eng=create_engine(f"postgresql://{postgres_user}:{postgres_password}@{host}:{port}/{database}")
 pg_data=pd.read_sql("select * from dashboard", con=eng)
 
-#### local only -
-dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.css"
-
-pg_data=pd.read_csv('/Users/nick/fin_dashboard/test_data.csv')
-pg_data['date'] = pd.to_datetime(pg_data['date'])
 
 
 # TODO: - put these into a csv/load into postgres as dim table - "preferred names"
@@ -155,7 +150,6 @@ wtd_table.update_layout(title_text=f'Weekly Returns <br><sup>{daily_var}<sup>')
 app = dash.Dash(external_stylesheets=[dbc.themes.SUPERHERO,dbc_css])
 
 table_width=33.33
-
 
 
 app.layout = dash.html.Div(children=[
